@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2, VolumeX, Sun, Sunset, Moon, Globe, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, Sun, Sunset, Moon, Globe, Sparkles, Users } from 'lucide-react';
 import { TimeOfDay, Language } from '../types/office';
 import { soundManager } from '../utils/audio';
 
@@ -9,6 +9,8 @@ interface HeaderProps {
   language: Language;
   setLanguage: (l: Language) => void;
   onStartTour: () => void;
+  peopleCount?: number;
+  onCelebrateAll?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,6 +19,8 @@ export const Header: React.FC<HeaderProps> = ({
   language,
   setLanguage,
   onStartTour,
+  peopleCount = 18,
+  onCelebrateAll,
 }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [timeStr, setTimeStr] = useState('');
@@ -131,6 +135,21 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Globe className="w-3.5 h-3.5 text-slate-500" />
           <span className="text-[11px]">{language === 'en' ? 'বাংলা' : 'EN'}</span>
+        </button>
+
+        {/* Citizens / People on Campus Button */}
+        <button
+          onClick={() => {
+            soundManager.playSuccess();
+            if (onCelebrateAll) onCelebrateAll();
+          }}
+          title={language === 'bn' ? 'ক্যাম্পাসের মানুষ: উল্লাস করান 🎉' : 'Campus People: Trigger Celebration 🎉'}
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-panel text-xs font-bold text-slate-700 hover:text-slate-950 hover:bg-white transition-all shadow-sm active:scale-95"
+        >
+          <Users className="w-3.5 h-3.5 text-indigo-500" />
+          <span className="text-[11px]">
+            {language === 'bn' ? `${peopleCount} জন মানুষ` : `${peopleCount} People`}
+          </span>
         </button>
 
         {/* Quick Tour Button */}

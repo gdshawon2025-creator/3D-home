@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { ViewMode, TimeOfDay, Language, RoomInfo } from './types/office';
 import { ROOMS } from './data/officeData';
+import { CAMPUS_PEOPLE, PersonProfile } from './data/peopleData';
 import { ThreeCanvas } from './components/ThreeCanvas';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -8,14 +9,16 @@ import { BottomBar } from './components/BottomBar';
 import { RoomModal } from './components/RoomModal';
 import { TourOverlay } from './components/TourOverlay';
 import { FootballModal } from './components/FootballModal';
+import { PersonModal } from './components/PersonModal';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewMode>('full');
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>('day');
-  const [language, setLanguage] = useState<Language>('bn'); // Default to Bengali as requested, with instant toggle to English
+  const [language, setLanguage] = useState<Language>('bn');
   const [isTourActive, setIsTourActive] = useState<boolean>(false);
   const [inspectedRoom, setInspectedRoom] = useState<RoomInfo | null>(null);
   const [isFootballModalOpen, setIsFootballModalOpen] = useState<boolean>(false);
+  const [selectedPerson, setSelectedPerson] = useState<PersonProfile | null>(null);
 
   // Zoom control triggers
   const [zoomTrigger, setZoomTrigger] = useState<number>(0);
@@ -24,12 +27,16 @@ export default function App() {
   // Kick ball trigger in football view
   const [kickTrigger, setKickTrigger] = useState<number>(0);
 
+  // Campus-wide celebration trigger for people
+  const [celebrateTrigger, setCelebrateTrigger] = useState<number>(0);
+
   const handleSelectView = useCallback((view: ViewMode) => {
     setCurrentView(view);
     const room = ROOMS.find((r) => r.id === view);
     if (room) {
       setInspectedRoom(room);
       setIsFootballModalOpen(false);
+      setSelectedPerson(null);
     } else if (view === 'football') {
       setIsFootballModalOpen(true);
       setInspectedRoom(null);
@@ -44,6 +51,7 @@ export default function App() {
     if (room) {
       setInspectedRoom(room);
       setIsFootballModalOpen(false);
+      setSelectedPerson(null);
     }
   }, []);
 
@@ -51,6 +59,7 @@ export default function App() {
     setIsTourActive(true);
     setInspectedRoom(null);
     setIsFootballModalOpen(false);
+    setSelectedPerson(null);
   }, []);
 
   const handleZoomIn = useCallback(() => {
@@ -67,6 +76,10 @@ export default function App() {
     setKickTrigger((k) => k + 1);
   }, []);
 
+  const handleCelebrateAll = useCallback(() => {
+    setCelebrateTrigger((c) => c + 1);
+  }, []);
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#d7e6e0] font-sans select-none">
       {/* 3D Canvas Layer */}
@@ -78,6 +91,9 @@ export default function App() {
         onInspectRoom={handleInspectRoom}
         zoomTrigger={zoomTrigger}
         zoomDelta={zoomDelta}
+        celebrateTrigger={celebrateTrigger}
+        selectedPerson={selectedPerson}
+        onSelectPerson={setSelectedPerson}
       />
 
       {/* Top Header */}
@@ -87,6 +103,8 @@ export default function App() {
         language={language}
         setLanguage={setLanguage}
         onStartTour={handleStartTour}
+        peopleCount={CAMPUS_PEOPLE.length}
+        onCelebrateAll={handleCelebrateAll}
       />
 
       {/* Left Sidebar (Only visible when tour is not active) */}
@@ -101,7 +119,7 @@ export default function App() {
       )}
 
       {/* Room Details Modal */}
-      {!isTourActive && inspectedRoom && (
+      {!isTourActive && inspectedRoom && !selectedPerson && (
         <RoomModal
           room={inspectedRoom}
           language={language}
@@ -109,8 +127,19 @@ export default function App() {
         />
       )}
 
+      {/* Person Profile & Speech Bubble Modal */}
+      {!isTourActive && selectedPerson && (
+        <PersonModal
+          person={selectedPerson}
+          language={language}
+          onClose={() => setSelectedPerson(null)}
+          onCheerPerson={handleCelebrateAll}
+          onKickBall={handleKickBall}
+        />
+      )}
+
       {/* Football Pitch Modal */}
-      {!isTourActive && isFootballModalOpen && (
+      {!isTourActive && isFootballModalOpen && !selectedPerson && (
         <FootballModal
           language={language}
           onKick={handleKickBall}

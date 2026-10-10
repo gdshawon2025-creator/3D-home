@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { ViewMode, TimeOfDay, Language } from '../types/office';
 import { CAMERA_PRESETS, ROOMS } from '../data/officeData';
+import { CAMPUS_PEOPLE, PersonProfile } from '../data/peopleData';
 import { soundManager } from '../utils/audio';
 
 interface ThreeCanvasProps {
@@ -12,6 +13,16 @@ interface ThreeCanvasProps {
   onInspectRoom?: (view: ViewMode) => void;
   zoomTrigger?: number; // increments to trigger zoom in/out
   zoomDelta?: number;
+  celebrateTrigger?: number;
+  selectedPerson?: PersonProfile | null;
+  onSelectPerson?: (p: PersonProfile | null) => void;
+}
+
+interface PersonPin {
+  person: PersonProfile;
+  x: number;
+  y: number;
+  visible: boolean;
 }
 
 interface ScreenPin {
@@ -25,6 +36,27 @@ interface ScreenPin {
   isYou?: boolean;
 }
 
+interface CharacterInstance {
+  profile: PersonProfile;
+  group: THREE.Group;
+  spine: THREE.Group;
+  leftLegHip: THREE.Group;
+  leftKnee: THREE.Group;
+  rightLegHip: THREE.Group;
+  rightKnee: THREE.Group;
+  leftArmShoulder: THREE.Group;
+  leftElbow: THREE.Group;
+  rightArmShoulder: THREE.Group;
+  rightElbow: THREE.Group;
+  head: THREE.Group;
+  walkPhase: number;
+  walkSpeed: number;
+  walkTargetIdx: number;
+  currentPos: THREE.Vector3;
+  basePos: THREE.Vector3;
+  cheerTime: number;
+}
+
 export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
   currentView,
   onSelectView,
@@ -33,15 +65,22 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
   onInspectRoom,
   zoomTrigger,
   zoomDelta,
+  celebrateTrigger,
+  selectedPerson,
+  onSelectPerson,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [screenPins, setScreenPins] = useState<ScreenPin[]>([]);
+  const [screenPeoplePins, setScreenPeoplePins] = useState<PersonPin[]>([]);
 
   // Three.js instances refs
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const animFrameRef = useRef<number | null>(null);
+
+  // Characters refs
+  const charactersRef = useRef<CharacterInstance[]>([]);
 
   // Lighting refs for time-of-day changes
   const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
@@ -117,7 +156,20 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       4 + Math.random() * 3,
       (Math.random() - 0.5) * 8
     );
+    charactersRef.current.forEach((char) => {
+      if (char.profile.category === 'footballer') {
+        char.cheerTime = 2.5;
+      }
+    });
   }, []);
+
+  // Trigger campus-wide celebration
+  useEffect(() => {
+    if (!celebrateTrigger) return;
+    charactersRef.current.forEach((char) => {
+      char.cheerTime = 4.0;
+    });
+  }, [celebrateTrigger]);
 
   // Update time of day lighting
   useEffect(() => {
@@ -851,7 +903,366 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     parked2.rotation.y = Math.PI / 2;
     islandGroup.add(parked2);
 
-    // 8. DISTANT ENVIRONMENT: LIGHTHOUSE & SAILBOATS
+    // 8. CAMPUS PEOPLE & CHARACTERS (Realistic Anatomical Humans)
+    const peopleGroup = new THREE.Group();
+    islandGroup.add(peopleGroup);
+    charactersRef.current = [];
+
+    const createCharacter = (profile: PersonProfile): CharacterInstance => {
+      const charGroup = new THREE.Group();
+      charGroup.position.set(...profile.position);
+      if (profile.rotationY !== undefined) {
+        charGroup.rotation.y = profile.rotationY;
+      }
+
+      // Realistic PBR materials (Skin, Cloth, Shoes)
+      const skinMat = new THREE.MeshStandardMaterial({
+        color: profile.skinColor,
+        roughness: 0.52,
+        metalness: 0.04,
+      });
+
+      const shirtMat = new THREE.MeshStandardMaterial({
+        color: profile.shirtColor,
+        roughness: 0.82,
+        metalness: 0.02,
+      });
+
+      const pantsMat = new THREE.MeshStandardMaterial({
+        color: profile.pantsColor,
+        roughness: 0.78,
+      });
+
+      const hairMat = new THREE.MeshStandardMaterial({
+        color: profile.hairColor,
+        roughness: 0.65,
+        metalness: 0.1,
+      });
+
+      const shoeUpperMat = new THREE.MeshStandardMaterial({
+        color: profile.category === 'footballer' ? profile.shirtColor : 0x1e293b,
+        roughness: 0.7,
+      });
+
+      const shoeSoleMat = new THREE.MeshStandardMaterial({
+        color: 0xf8fafc,
+        roughness: 0.4,
+      });
+
+      // --- LOWER BODY & HIPS ---
+      const pelvis = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.105, 0.095, 0.10, 12),
+        pantsMat
+      );
+      pelvis.position.y = 0.40;
+      pelvis.castShadow = true;
+      charGroup.add(pelvis);
+
+      // Belt with metal buckle
+      const belt = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.108, 0.108, 0.025, 12),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 })
+      );
+      belt.position.y = 0.44;
+      charGroup.add(belt);
+
+      const buckle = new THREE.Mesh(
+        new THREE.BoxGeometry(0.035, 0.022, 0.015),
+        new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.2 })
+      );
+      buckle.position.set(0, 0.44, 0.105);
+      charGroup.add(buckle);
+
+      // Helper: Anatomical Leg with Thigh, Knee joint, Shin, and Contoured Sneaker
+      const createAnatomicalLeg = (isLeft: boolean) => {
+        const hipGroup = new THREE.Group();
+        hipGroup.position.set(isLeft ? -0.065 : 0.065, 0.38, 0);
+
+        // Upper Thigh
+        const thigh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.044, 0.036, 0.18, 10),
+          pantsMat
+        );
+        thigh.position.y = -0.09;
+        thigh.castShadow = true;
+        hipGroup.add(thigh);
+
+        // Knee Joint
+        const kneeGroup = new THREE.Group();
+        kneeGroup.position.set(0, -0.18, 0);
+
+        // Shin / Calf
+        const isShorts = profile.category === 'footballer';
+        const shin = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.036, 0.028, 0.18, 10),
+          isShorts ? skinMat : pantsMat
+        );
+        shin.position.y = -0.09;
+        shin.castShadow = true;
+        kneeGroup.add(shin);
+
+        // Football socks for footballers
+        if (isShorts) {
+          const sock = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.034, 0.029, 0.12, 10),
+            shirtMat
+          );
+          sock.position.y = -0.11;
+          kneeGroup.add(sock);
+        }
+
+        // Realistic Sneaker / Cleat
+        const shoeGroup = new THREE.Group();
+        shoeGroup.position.set(0, -0.18, 0.02);
+
+        // White rubber sole
+        const sole = new THREE.Mesh(
+          new THREE.BoxGeometry(0.065, 0.022, 0.13),
+          shoeSoleMat
+        );
+        sole.position.y = -0.01;
+        sole.castShadow = true;
+
+        // Contoured shoe upper
+        const upper = new THREE.Mesh(
+          new THREE.BoxGeometry(0.062, 0.04, 0.12),
+          shoeUpperMat
+        );
+        upper.position.set(0, 0.015, 0.01);
+        upper.castShadow = true;
+
+        shoeGroup.add(sole, upper);
+        kneeGroup.add(shoeGroup);
+        hipGroup.add(kneeGroup);
+
+        return { hipGroup, kneeGroup };
+      };
+
+      const leftLegData = createAnatomicalLeg(true);
+      const rightLegData = createAnatomicalLeg(false);
+
+      if (profile.isSitting) {
+        leftLegData.hipGroup.rotation.x = -Math.PI / 2.1;
+        rightLegData.hipGroup.rotation.x = -Math.PI / 2.1;
+        leftLegData.kneeGroup.rotation.x = Math.PI / 2.1;
+        rightLegData.kneeGroup.rotation.x = Math.PI / 2.1;
+        pelvis.position.y = 0.28;
+      }
+
+      charGroup.add(leftLegData.hipGroup, rightLegData.hipGroup);
+
+      // --- SPINE & UPPER BODY ---
+      const spine = new THREE.Group();
+      spine.position.y = 0.44;
+      charGroup.add(spine);
+
+      // Broad athletic chest tapering to waist
+      const chest = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.125, 0.098, 0.22, 12),
+        shirtMat
+      );
+      chest.position.y = 0.11;
+      chest.castShadow = true;
+      spine.add(chest);
+
+      // Shirt Collar / V-neck detail
+      const collar = new THREE.Mesh(
+        new THREE.TorusGeometry(0.042, 0.01, 8, 16),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 })
+      );
+      collar.rotation.x = Math.PI / 2;
+      collar.position.set(0, 0.22, 0.02);
+      spine.add(collar);
+
+      // Footballer squad number badge on front & back
+      if (profile.category === 'footballer' && profile.team !== 'referee') {
+        const badge = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.05, 0.05),
+          new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+        badge.position.set(0, 0.14, 0.102);
+        spine.add(badge);
+
+        const badgeBack = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.08, 0.08),
+          new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+        badgeBack.rotation.y = Math.PI;
+        badgeBack.position.set(0, 0.14, -0.102);
+        spine.add(badgeBack);
+      }
+
+      // Referee black & white stripes
+      if (profile.team === 'referee') {
+        for (let s = -0.08; s <= 0.08; s += 0.04) {
+          const stripe = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.02, 0.20),
+            new THREE.MeshBasicMaterial({ color: 0xffffff })
+          );
+          stripe.position.set(s, 0.11, 0.102);
+          spine.add(stripe);
+        }
+      }
+
+      // --- NECK & REALISTIC SCULPTED HEAD ---
+      const neck = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.034, 0.040, 0.06, 12),
+        skinMat
+      );
+      neck.position.y = 0.24;
+      spine.add(neck);
+
+      const headGroup = new THREE.Group();
+      headGroup.position.y = 0.32;
+      spine.add(headGroup);
+
+      // Smooth Cranium with natural human egg-oval shape
+      const cranium = new THREE.Mesh(
+        new THREE.SphereGeometry(0.076, 16, 16),
+        skinMat
+      );
+      cranium.scale.set(0.92, 1.15, 1.05);
+      cranium.castShadow = true;
+      headGroup.add(cranium);
+
+      // Sculpted layered hair (Organically wraps skull)
+      const hairGroup = new THREE.Group();
+      const hairTop = new THREE.Mesh(
+        new THREE.SphereGeometry(0.080, 16, 16, 0, Math.PI * 2, 0, Math.PI / 1.7),
+        hairMat
+      );
+      hairTop.scale.set(0.95, 1.18, 1.08);
+      hairTop.position.set(0, 0.015, -0.005);
+      hairTop.castShadow = true;
+      hairGroup.add(hairTop);
+
+      // Hair sideburns & back taper
+      const hairBack = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.08, 0.05),
+        hairMat
+      );
+      hairBack.position.set(0, 0.01, -0.06);
+      hairGroup.add(hairBack);
+      headGroup.add(hairGroup);
+
+      // Subtle stylish glasses / sunglasses for select characters
+      if (profile.id === 'boss_executive' || profile.id === 'fountain_reader') {
+        const glasses = new THREE.Mesh(
+          new THREE.BoxGeometry(0.11, 0.024, 0.03),
+          new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.1, metalness: 0.9 })
+        );
+        glasses.position.set(0, 0.015, 0.075);
+        headGroup.add(glasses);
+      }
+
+      // --- ANATOMICAL MULTI-SEGMENT ARMS ---
+      const createAnatomicalArm = (isLeft: boolean) => {
+        const shoulderGroup = new THREE.Group();
+        shoulderGroup.position.set(isLeft ? -0.155 : 0.155, 0.20, 0);
+
+        // Shoulder Deltoid Cap
+        const deltoid = new THREE.Mesh(
+          new THREE.SphereGeometry(0.038, 10, 10),
+          shirtMat
+        );
+        shoulderGroup.add(deltoid);
+
+        // Upper Bicep / Tricep
+        const upperArm = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.034, 0.028, 0.14, 10),
+          shirtMat
+        );
+        upperArm.position.y = -0.07;
+        upperArm.castShadow = true;
+        shoulderGroup.add(upperArm);
+
+        // Elbow Joint
+        const elbowGroup = new THREE.Group();
+        elbowGroup.position.set(0, -0.14, 0);
+
+        // Forearm
+        const forearm = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.028, 0.023, 0.13, 10),
+          skinMat
+        );
+        forearm.position.y = -0.065;
+        forearm.castShadow = true;
+        elbowGroup.add(forearm);
+
+        // Natural Hand (Palm + Thumb contour)
+        const hand = new THREE.Mesh(
+          new THREE.SphereGeometry(0.024, 8, 8),
+          skinMat
+        );
+        hand.scale.set(0.8, 1.2, 0.9);
+        hand.position.set(0, -0.14, 0.01);
+        elbowGroup.add(hand);
+
+        // Default natural slight elbow resting flexion (~15 deg)
+        elbowGroup.rotation.x = 0.25;
+
+        shoulderGroup.add(elbowGroup);
+        return { shoulderGroup, elbowGroup };
+      };
+
+      const leftArmData = createAnatomicalArm(true);
+      const rightArmData = createAnatomicalArm(false);
+      spine.add(leftArmData.shoulderGroup, rightArmData.shoulderGroup);
+
+      // --- ACCESSORIES (Realistic Laptop, Coffee Mug) ---
+      if (profile.id === 'spectator_1' || profile.id === 'fountain_reader') {
+        const laptop = new THREE.Group();
+        const base = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.015, 0.11),
+          new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.3 })
+        );
+        const screen = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.10, 0.01),
+          new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 })
+        );
+        screen.position.set(0, 0.05, -0.05);
+        screen.rotation.x = -0.2;
+        laptop.add(base, screen);
+        laptop.position.set(0, 0.32, 0.13);
+        charGroup.add(laptop);
+      } else if (profile.id === 'walker_south' || profile.id === 'lounge_barista') {
+        const mug = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.028, 0.022, 0.065, 10),
+          new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 })
+        );
+        mug.position.set(0, -0.17, 0.03);
+        rightArmData.elbowGroup.add(mug);
+      }
+
+      peopleGroup.add(charGroup);
+
+      return {
+        profile,
+        group: charGroup,
+        spine,
+        leftLegHip: leftLegData.hipGroup,
+        leftKnee: leftLegData.kneeGroup,
+        rightLegHip: rightLegData.hipGroup,
+        rightKnee: rightLegData.kneeGroup,
+        leftArmShoulder: leftArmData.shoulderGroup,
+        leftElbow: leftArmData.elbowGroup,
+        rightArmShoulder: rightArmData.shoulderGroup,
+        rightElbow: rightArmData.elbowGroup,
+        head: headGroup,
+        walkPhase: Math.random() * Math.PI * 2,
+        walkSpeed: 0.026,
+        walkTargetIdx: 0,
+        currentPos: new THREE.Vector3(...profile.position),
+        basePos: new THREE.Vector3(...profile.position),
+        cheerTime: 0,
+      };
+    };
+
+    CAMPUS_PEOPLE.forEach((p) => {
+      charactersRef.current.push(createCharacter(p));
+    });
+
+    // 9. DISTANT ENVIRONMENT: LIGHTHOUSE & SAILBOATS
     const lighthouseGroup = new THREE.Group();
     lighthouseGroup.position.set(20, 0, -22);
     scene.add(lighthouseGroup);
@@ -1106,6 +1517,118 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
         }
       }
 
+      // Characters animation update (Realistic Multi-Joint Kinematics)
+      const ballPos = soccerBallRef.current ? soccerBallRef.current.position : new THREE.Vector3(0, 0.22, 2.5);
+
+      charactersRef.current.forEach((char) => {
+        // 1. Walking Pedestrians with Natural Human Gait
+        if (char.profile.walkPath && char.profile.walkPath.length > 1) {
+          char.walkPhase += 0.075;
+          const target = char.profile.walkPath[char.walkTargetIdx];
+          const targetVec = new THREE.Vector3(target[0], char.basePos.y, target[1]);
+          const dir = targetVec.clone().sub(char.currentPos);
+          const dist = dir.length();
+          if (dist < 0.25) {
+            char.walkTargetIdx = (char.walkTargetIdx + 1) % char.profile.walkPath.length;
+          } else {
+            dir.normalize();
+            char.currentPos.addScaledVector(dir, char.walkSpeed);
+            char.group.position.copy(char.currentPos);
+            char.group.rotation.y = Math.atan2(dir.x, dir.z);
+
+            // True anatomical human gait:
+            const legPitch = Math.sin(char.walkPhase) * 0.52;
+            char.leftLegHip.rotation.x = legPitch;
+            char.rightLegHip.rotation.x = -legPitch;
+
+            // Knee flexion (bends back on backswing, extends on plant)
+            char.leftKnee.rotation.x = Math.max(0.08, -legPitch * 0.85);
+            char.rightKnee.rotation.x = Math.max(0.08, legPitch * 0.85);
+
+            // Arm swing opposite to legs with natural elbow flexion
+            char.leftArmShoulder.rotation.x = -legPitch * 0.45;
+            char.rightArmShoulder.rotation.x = legPitch * 0.45;
+            char.leftElbow.rotation.x = 0.25 + Math.max(0, -legPitch * 0.25);
+            char.rightElbow.rotation.x = 0.25 + Math.max(0, legPitch * 0.25);
+
+            // Subtle pelvis weight shift and step bounce
+            char.spine.rotation.z = Math.sin(char.walkPhase) * 0.03;
+            char.spine.rotation.x = 0.04; // slight forward travel posture
+            char.group.position.y = char.basePos.y + Math.abs(Math.sin(char.walkPhase * 2)) * 0.02;
+          }
+        } else if (char.profile.category === 'footballer') {
+          // 2. Footballers: Athletic ready stances & dynamic match actions
+          if (char.cheerTime > 0) {
+            char.cheerTime -= 0.016;
+            // Jumping and raising arms in genuine celebration
+            char.leftArmShoulder.rotation.x = -2.5 + Math.sin(elapsed * 10) * 0.25;
+            char.rightArmShoulder.rotation.x = -2.5 + Math.cos(elapsed * 10) * 0.25;
+            char.leftElbow.rotation.x = 0.5;
+            char.rightElbow.rotation.x = 0.5;
+            char.leftKnee.rotation.x = 0.2;
+            char.rightKnee.rotation.x = 0.2;
+            char.group.position.y = char.basePos.y + Math.abs(Math.sin(elapsed * 9)) * 0.18;
+          } else if (char.profile.team === 'red' || char.profile.team === 'blue') {
+            if (char.profile.roleEn.includes('Goalkeeper')) {
+              // Goalkeeper alert crouch: flexed knees, hands forward
+              char.spine.rotation.x = 0.18;
+              char.leftKnee.rotation.x = 0.35;
+              char.rightKnee.rotation.x = 0.35;
+              char.leftArmShoulder.rotation.x = -0.55;
+              char.rightArmShoulder.rotation.x = -0.55;
+              char.leftElbow.rotation.x = 0.65;
+              char.rightElbow.rotation.x = 0.65;
+              char.group.position.z = char.basePos.z + Math.sin(elapsed * 2.2) * 0.35;
+            } else {
+              // Outfield player athletic jogging & tracking ball
+              char.walkPhase += 0.065;
+              const jog = Math.sin(char.walkPhase) * 0.26;
+              char.leftLegHip.rotation.x = jog;
+              char.rightLegHip.rotation.x = -jog;
+              char.leftKnee.rotation.x = Math.max(0.1, -jog * 0.5);
+              char.rightKnee.rotation.x = Math.max(0.1, jog * 0.5);
+
+              char.leftArmShoulder.rotation.x = -jog * 0.3;
+              char.rightArmShoulder.rotation.x = jog * 0.3;
+              char.leftElbow.rotation.x = 0.45;
+              char.rightElbow.rotation.x = 0.45;
+              char.spine.rotation.x = 0.12; // athletic forward lean
+
+              // Turn torso towards the match ball
+              const lookDir = ballPos.clone().sub(char.group.position);
+              char.group.rotation.y = Math.atan2(lookDir.x, lookDir.z);
+            }
+          }
+        } else if (char.profile.isSitting) {
+          // 3. Sitting people on benches & lounges
+          char.leftLegHip.rotation.x = -Math.PI / 2.1;
+          char.rightLegHip.rotation.x = -Math.PI / 2.1;
+          char.leftKnee.rotation.x = Math.PI / 2.1;
+          char.rightKnee.rotation.x = Math.PI / 2.1;
+
+          if (char.profile.id.startsWith('spectator')) {
+            // Cheering fan with moving arms
+            char.leftArmShoulder.rotation.x = -1.4 + Math.sin(elapsed * 5) * 0.35;
+            char.rightArmShoulder.rotation.x = -1.4 + Math.cos(elapsed * 5) * 0.35;
+            char.leftElbow.rotation.x = 0.5;
+            char.rightElbow.rotation.x = 0.5;
+          } else {
+            // Peaceful seated reader
+            char.head.rotation.y = Math.sin(elapsed * 0.7) * 0.18;
+            char.leftArmShoulder.rotation.x = 0.2;
+            char.rightArmShoulder.rotation.x = 0.2;
+            char.leftElbow.rotation.x = 0.6;
+            char.rightElbow.rotation.x = 0.6;
+          }
+        } else {
+          // 4. Standing office workers: gentle breathing & natural head look
+          char.spine.position.y = 0.44 + Math.sin(elapsed * 1.5) * 0.004;
+          char.head.rotation.y = Math.sin(elapsed * 0.6) * 0.22;
+          char.leftArmShoulder.rotation.x = Math.sin(elapsed * 0.5) * 0.05;
+          char.rightArmShoulder.rotation.x = -Math.sin(elapsed * 0.5) * 0.05;
+        }
+      });
+
       // Render
       renderer.render(scene, camera);
 
@@ -1171,6 +1694,28 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       }
 
       setScreenPins(newPins);
+
+      // Project people pins when camera is reasonably close or in football view
+      const newPeoplePins: PersonPin[] = [];
+      if (currentView === 'football' || camPos.distanceTo(new THREE.Vector3(0, 0, 0)) < 30) {
+        charactersRef.current.forEach((char) => {
+          const charHeadPos = char.group.position.clone();
+          charHeadPos.y += 0.85;
+          const pScreen = charHeadPos.project(camera);
+          if (pScreen.z < 1) {
+            const sx = ((pScreen.x + 1) * container.clientWidth) / 2;
+            const sy = ((-pScreen.y + 1) * container.clientHeight) / 2;
+            const dist = camPos.distanceTo(char.group.position);
+            newPeoplePins.push({
+              person: char.profile,
+              x: sx,
+              y: sy,
+              visible: dist < 28,
+            });
+          }
+        });
+      }
+      setScreenPeoplePins(newPeoplePins);
     };
 
     animate();
@@ -1266,6 +1811,46 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
                 <span className="tracking-tight text-[11px] whitespace-nowrap">{pin.label}</span>
               </div>
               <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] mx-auto -mt-[1px] border-t-slate-800/80" />
+            </div>
+          );
+        })}
+
+        {/* People Interactive Pins in 3D Space */}
+        {screenPeoplePins.map((ppin) => {
+          if (!ppin.visible) return null;
+          const isPersonSelected = selectedPerson?.id === ppin.person.id;
+          return (
+            <div
+              key={ppin.person.id}
+              style={{
+                left: `${ppin.x}px`,
+                top: `${ppin.y}px`,
+                transform: 'translate(-50%, -100%)',
+              }}
+              className="absolute pointer-events-auto cursor-pointer group transition-all duration-200 z-15"
+              onClick={() => {
+                soundManager.playClick();
+                if (onSelectPerson) {
+                  onSelectPerson(isPersonSelected ? null : ppin.person);
+                }
+              }}
+            >
+              <div
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-md backdrop-blur-md transition-all duration-150 ${
+                  isPersonSelected
+                    ? 'bg-amber-400 text-slate-950 scale-110 ring-2 ring-white shadow-xl'
+                    : 'bg-slate-900/80 text-white hover:bg-slate-900 hover:scale-105 border border-white/20'
+                }`}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: `#${ppin.person.shirtColor.toString(16).padStart(6, '0')}` }}
+                />
+                <span className="truncate max-w-[90px]">
+                  {language === 'bn' ? ppin.person.nameBn.split(' ')[0] : ppin.person.nameEn.split(' ')[0]}
+                </span>
+              </div>
+              <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] mx-auto -mt-[1px] border-t-slate-900/80" />
             </div>
           );
         })}
