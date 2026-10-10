@@ -1,0 +1,6 @@
+{
+  "name": "The Office 3D - Virtual Campus Explorer",
+  "description": "An interactive isometric 3D corporate headquarters and virtual office campus explorer with real-time room navigation, smooth camera tours, and environmental interactions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
