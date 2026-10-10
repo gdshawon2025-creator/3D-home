@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { ViewMode, TimeOfDay, Language, RoomInfo } from './types/office';
+import { ViewMode, TimeOfDay, Language, RoomInfo, CampusConfig, CameraMode } from './types/office';
 import { ROOMS } from './data/officeData';
 import { CAMPUS_PEOPLE, PersonProfile } from './data/peopleData';
 import { ThreeCanvas } from './components/ThreeCanvas';
@@ -10,6 +10,8 @@ import { RoomModal } from './components/RoomModal';
 import { TourOverlay } from './components/TourOverlay';
 import { FootballModal } from './components/FootballModal';
 import { PersonModal } from './components/PersonModal';
+import { BossController } from './components/BossController';
+import { CustomizerPanel } from './components/CustomizerPanel';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewMode>('full');
@@ -19,6 +21,25 @@ export default function App() {
   const [inspectedRoom, setInspectedRoom] = useState<RoomInfo | null>(null);
   const [isFootballModalOpen, setIsFootballModalOpen] = useState<boolean>(false);
   const [selectedPerson, setSelectedPerson] = useState<PersonProfile | null>(null);
+
+  // Campus Customizer & Control State
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState<boolean>(false);
+  const [campusConfig, setCampusConfig] = useState<CampusConfig>({
+    buildingTheme: 'emerald',
+    cameraMode: 'orbit',
+    weather: 'sunny',
+    sunIntensity: 1.0,
+    ambientIntensity: 1.0,
+    trafficSpeed: 1.0,
+    cutawayRoofs: false,
+    bossSpeed: 0.12,
+    activeInteriorRoom: null,
+  });
+
+  // Boss Interactive Position & Control
+  const [bossPos, setBossPos] = useState<[number, number, number]>([-4.0, 6.3, -3.2]);
+  const [bossTargetTeleport, setBossTargetTeleport] = useState<[number, number, number] | null>(null);
+  const [manualBossMove, setManualBossMove] = useState<{ dx: number; dz: number; tick: number } | null>(null);
 
   // Zoom control triggers
   const [zoomTrigger, setZoomTrigger] = useState<number>(0);
@@ -60,6 +81,7 @@ export default function App() {
     setInspectedRoom(null);
     setIsFootballModalOpen(false);
     setSelectedPerson(null);
+    setIsCustomizerOpen(false);
   }, []);
 
   const handleZoomIn = useCallback(() => {
@@ -80,6 +102,69 @@ export default function App() {
     setCelebrateTrigger((c) => c + 1);
   }, []);
 
+  // Boss Controller Actions
+  const handleMoveBoss = useCallback((dx: number, dz: number) => {
+    setManualBossMove((prev) => ({
+      dx,
+      dz,
+      tick: (prev?.tick || 0) + 1,
+    }));
+  }, []);
+
+  const handleTeleportBoss = useCallback((pos: [number, number, number], viewName?: ViewMode) => {
+    setBossTargetTeleport([...pos]);
+    if (viewName) {
+      setCurrentView(viewName);
+    }
+  }, []);
+
+  const handleSetCameraMode = useCallback((mode: CameraMode) => {
+    setCampusConfig((prev) => ({ ...prev, cameraMode: mode }));
+  }, []);
+
+  const handleEnterInterior = useCallback((roomId: ViewMode) => {
+    setCampusConfig((prev) => ({
+      ...prev,
+      cutawayRoofs: true,
+      activeInteriorRoom: roomId,
+    }));
+    setCurrentView(roomId);
+    const room = ROOMS.find((r) => r.id === roomId);
+    if (room) {
+      setBossTargetTeleport([...room.interiorPosition]);
+    }
+  }, []);
+
+  const handleExitInterior = useCallback(() => {
+    setCampusConfig((prev) => ({
+      ...prev,
+      cutawayRoofs: false,
+      activeInteriorRoom: null,
+      cameraMode: 'orbit',
+    }));
+    setCurrentView('full');
+  }, []);
+
+  const handleChangeConfig = useCallback((updates: Partial<CampusConfig>) => {
+    setCampusConfig((prev) => ({ ...prev, ...updates }));
+  }, []);
+
+  const handleResetDefaults = useCallback(() => {
+    setCampusConfig({
+      buildingTheme: 'emerald',
+      cameraMode: 'orbit',
+      weather: 'sunny',
+      sunIntensity: 1.0,
+      ambientIntensity: 1.0,
+      trafficSpeed: 1.0,
+      cutawayRoofs: false,
+      bossSpeed: 0.12,
+      activeInteriorRoom: null,
+    });
+  }, []);
+
+  const isInsideBuilding = !!campusConfig.activeInteriorRoom || campusConfig.cutawayRoofs;
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#d7e6e0] font-sans select-none">
       {/* 3D Canvas Layer */}
@@ -94,6 +179,11 @@ export default function App() {
         celebrateTrigger={celebrateTrigger}
         selectedPerson={selectedPerson}
         onSelectPerson={setSelectedPerson}
+        campusConfig={campusConfig}
+        onUpdateBossPos={setBossPos}
+        bossTargetTeleport={bossTargetTeleport}
+        manualBossMove={manualBossMove}
+        onEnterInteriorRoom={handleEnterInterior}
       />
 
       {/* Top Header */}
@@ -105,6 +195,7 @@ export default function App() {
         onStartTour={handleStartTour}
         peopleCount={CAMPUS_PEOPLE.length}
         onCelebrateAll={handleCelebrateAll}
+        onOpenCustomizer={() => setIsCustomizerOpen((prev) => !prev)}
       />
 
       {/* Left Sidebar (Only visible when tour is not active) */}
@@ -117,6 +208,32 @@ export default function App() {
           onStartTour={handleStartTour}
         />
       )}
+
+      {/* Boss Character Controller & Steering Widget */}
+      {!isTourActive && (
+        <BossController
+          language={language}
+          cameraMode={campusConfig.cameraMode}
+          onSetCameraMode={handleSetCameraMode}
+          onMoveBoss={handleMoveBoss}
+          onTeleportBoss={handleTeleportBoss}
+          bossPos={bossPos}
+          isInsideBuilding={isInsideBuilding}
+          activeRoomId={campusConfig.activeInteriorRoom || (inspectedRoom ? inspectedRoom.id : null)}
+          onEnterInterior={handleEnterInterior}
+          onExitInterior={handleExitInterior}
+        />
+      )}
+
+      {/* Full Campus Customizer Panel (Themes, Cutaway Roofs, Weather, Lighting, Speed) */}
+      <CustomizerPanel
+        language={language}
+        config={campusConfig}
+        onChangeConfig={handleChangeConfig}
+        onResetDefaults={handleResetDefaults}
+        isOpen={isCustomizerOpen}
+        onClose={() => setIsCustomizerOpen(false)}
+      />
 
       {/* Room Details Modal */}
       {!isTourActive && inspectedRoom && !selectedPerson && (

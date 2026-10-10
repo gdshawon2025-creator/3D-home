@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2, VolumeX, Sun, Sunset, Moon, Globe, Sparkles, Users } from 'lucide-react';
+import { Volume2, VolumeX, Sun, Sunset, Moon, Globe, Sparkles, Users, Sliders } from 'lucide-react';
 import { TimeOfDay, Language } from '../types/office';
 import { soundManager } from '../utils/audio';
 
@@ -11,6 +11,7 @@ interface HeaderProps {
   onStartTour: () => void;
   peopleCount?: number;
   onCelebrateAll?: () => void;
+  onOpenCustomizer?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   onStartTour,
   peopleCount = 18,
   onCelebrateAll,
+  onOpenCustomizer,
 }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [timeStr, setTimeStr] = useState('');
@@ -150,6 +152,16 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-[11px]">
             {language === 'bn' ? `${peopleCount} জন মানুষ` : `${peopleCount} People`}
           </span>
+        </button>
+
+        {/* Customizer / Settings Button */}
+        <button
+          onClick={onOpenCustomizer}
+          title={language === 'bn' ? 'ক্যাম্পাস কাস্টমাইজ ও কন্ট্রোল করুন' : 'Campus Customizer & Control'}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition-all shadow-md active:scale-95"
+        >
+          <Sliders className="w-3.5 h-3.5 text-white" />
+          <span className="text-[11px]">{language === 'bn' ? 'কাস্টমাইজার' : 'Customize'}</span>
         </button>
 
         {/* Quick Tour Button */}

@@ -14,6 +14,24 @@ export type TimeOfDay = 'day' | 'sunset' | 'night';
 
 export type Language = 'en' | 'bn';
 
+export type CameraMode = 'orbit' | 'follow_boss' | 'interior';
+
+export type BuildingTheme = 'emerald' | 'midnight' | 'minimal' | 'cyberpunk' | 'terracotta';
+
+export type WeatherMode = 'sunny' | 'rain' | 'foggy';
+
+export interface CampusConfig {
+  buildingTheme: BuildingTheme;
+  cameraMode: CameraMode;
+  weather: WeatherMode;
+  sunIntensity: number;
+  ambientIntensity: number;
+  trafficSpeed: number;
+  cutawayRoofs: boolean;
+  bossSpeed: number;
+  activeInteriorRoom: ViewMode | null;
+}
+
 export interface RoomInfo {
   id: ViewMode;
   code: string;
@@ -33,6 +51,9 @@ export interface RoomInfo {
   cameraPosition: [number, number, number];
   cameraTarget: [number, number, number];
   pinPosition: [number, number, number];
+  interiorPosition: [number, number, number];
+  interiorCameraPos: [number, number, number];
+  interiorCameraTarget: [number, number, number];
 }
 
 export interface Landmark {

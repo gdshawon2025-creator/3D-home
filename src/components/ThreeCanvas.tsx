@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { ViewMode, TimeOfDay, Language } from '../types/office';
-import { CAMERA_PRESETS, ROOMS } from '../data/officeData';
+import { ViewMode, TimeOfDay, Language, CampusConfig } from '../types/office';
+import { CAMERA_PRESETS, ROOMS, THEME_COLORS } from '../data/officeData';
 import { CAMPUS_PEOPLE, PersonProfile } from '../data/peopleData';
+import { buildCampusInteriors } from '../utils/interiorBuilder';
 import { soundManager } from '../utils/audio';
 
 interface ThreeCanvasProps {
@@ -11,11 +12,16 @@ interface ThreeCanvasProps {
   timeOfDay: TimeOfDay;
   language: Language;
   onInspectRoom?: (view: ViewMode) => void;
-  zoomTrigger?: number; // increments to trigger zoom in/out
+  zoomTrigger?: number;
   zoomDelta?: number;
   celebrateTrigger?: number;
   selectedPerson?: PersonProfile | null;
   onSelectPerson?: (p: PersonProfile | null) => void;
+  campusConfig: CampusConfig;
+  onUpdateBossPos?: (pos: [number, number, number]) => void;
+  bossTargetTeleport?: [number, number, number] | null;
+  manualBossMove?: { dx: number; dz: number; tick: number } | null;
+  onEnterInteriorRoom?: (roomId: ViewMode) => void;
 }
 
 interface PersonPin {
@@ -68,6 +74,11 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
   celebrateTrigger,
   selectedPerson,
   onSelectPerson,
+  campusConfig,
+  onUpdateBossPos,
+  bossTargetTeleport,
+  manualBossMove,
+  onEnterInteriorRoom,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [screenPins, setScreenPins] = useState<ScreenPin[]>([]);
@@ -81,6 +92,18 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
 
   // Characters refs
   const charactersRef = useRef<CharacterInstance[]>([]);
+  const bossTargetPos = useRef<THREE.Vector3 | null>(null);
+  const bossHaloRef = useRef<THREE.Mesh | null>(null);
+  const waypointMeshRef = useRef<THREE.Mesh | null>(null);
+  const keysPressedRef = useRef<Record<string, boolean>>({});
+
+  // Roof cutaway & interiors refs
+  const roofMeshesRef = useRef<THREE.Mesh[]>([]);
+  const rainParticlesRef = useRef<THREE.Points | null>(null);
+  const bldgWhiteMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const bldgGreenMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const bldgAccentMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const groundMeshRef = useRef<THREE.Mesh | null>(null);
 
   // Lighting refs for time-of-day changes
   const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
@@ -134,8 +157,20 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     }
   }, [zoomTrigger, zoomDelta]);
 
-  // Handle view switch
+  // Handle view switch & interior camera navigation
   useEffect(() => {
+    if (campusConfig.activeInteriorRoom) {
+      const room = ROOMS.find((r) => r.id === campusConfig.activeInteriorRoom);
+      if (room) {
+        targetCamPos.current.set(...room.interiorCameraPos);
+        targetLookAt.current.set(...room.interiorCameraTarget);
+        const offset = new THREE.Vector3().subVectors(targetCamPos.current, targetLookAt.current);
+        orbitSpherical.current.setFromVector3(offset);
+        soundManager.playTransition();
+        return;
+      }
+    }
+
     const preset = CAMERA_PRESETS[currentView] || CAMERA_PRESETS.full;
     targetCamPos.current.set(...preset.position);
     targetLookAt.current.set(...preset.target);
@@ -145,7 +180,7 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     orbitSpherical.current.setFromVector3(offset);
 
     soundManager.playTransition();
-  }, [currentView]);
+  }, [currentView, campusConfig.activeInteriorRoom]);
 
   // Handle kick ball interaction
   const kickBall = useCallback(() => {
@@ -226,9 +261,68 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
         m.emissive.setHex(0xfef08a);
         m.emissiveIntensity = 0.9;
       });
-      if (lighthouseBeamRef.current) lighthouseBeamRef.current.visible = true;
     }
   }, [timeOfDay]);
+
+  // Handle building theme colors
+  useEffect(() => {
+    if (!bldgWhiteMatRef.current || !bldgGreenMatRef.current || !bldgAccentMatRef.current) return;
+    const theme = THEME_COLORS[campusConfig.buildingTheme] || THEME_COLORS.emerald;
+    bldgWhiteMatRef.current.color.setHex(theme.primary);
+    bldgGreenMatRef.current.color.setHex(theme.secondary);
+    bldgAccentMatRef.current.color.setHex(theme.accent);
+  }, [campusConfig.buildingTheme]);
+
+  // Handle weather mode & rain particle system
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    if (rainParticlesRef.current) {
+      rainParticlesRef.current.visible = campusConfig.weather === 'rain';
+    }
+    if (campusConfig.weather === 'foggy') {
+      sceneRef.current.fog = new THREE.FogExp2(0x94a3b8, 0.04);
+    } else {
+      const fogColor = timeOfDay === 'night' ? 0x0f172a : timeOfDay === 'sunset' ? 0xf6d6bd : 0xd7e6e0;
+      sceneRef.current.fog = new THREE.FogExp2(fogColor, 0.012);
+    }
+  }, [campusConfig.weather, timeOfDay]);
+
+  // Handle sun & ambient light intensity
+  useEffect(() => {
+    if (dirLightRef.current) {
+      const baseDir = timeOfDay === 'day' ? 1.3 : timeOfDay === 'sunset' ? 1.5 : 0.45;
+      dirLightRef.current.intensity = baseDir * (campusConfig.sunIntensity || 1.0);
+    }
+    if (hemiLightRef.current) {
+      const baseHemi = timeOfDay === 'day' ? 0.9 : timeOfDay === 'sunset' ? 0.7 : 0.35;
+      hemiLightRef.current.intensity = baseHemi * (campusConfig.ambientIntensity || 1.0);
+    }
+  }, [campusConfig.sunIntensity, campusConfig.ambientIntensity, timeOfDay]);
+
+  // Handle cutaway roofs (transparent roofs to view interiors)
+  useEffect(() => {
+    roofMeshesRef.current.forEach((roof) => {
+      if (roof.material && 'opacity' in roof.material) {
+        const mat = roof.material as THREE.Material;
+        mat.transparent = true;
+        mat.opacity = campusConfig.cutawayRoofs ? 0.15 : 1.0;
+        mat.needsUpdate = true;
+      }
+    });
+  }, [campusConfig.cutawayRoofs]);
+
+  // Handle Boss teleport request
+  useEffect(() => {
+    if (!bossTargetTeleport) return;
+    const boss = charactersRef.current.find((c) => c.profile.id === 'boss_executive');
+    if (!boss) return;
+    boss.currentPos.set(...bossTargetTeleport);
+    boss.group.position.copy(boss.currentPos);
+    bossTargetPos.current = null;
+    if (waypointMeshRef.current) waypointMeshRef.current.visible = false;
+    soundManager.playSuccess();
+    if (onUpdateBossPos) onUpdateBossPos(bossTargetTeleport);
+  }, [bossTargetTeleport, onUpdateBossPos]);
 
   // Initial Scene Setup
   useEffect(() => {
@@ -289,6 +383,10 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     const bldgWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
     const bldgGreenMat = new THREE.MeshStandardMaterial({ color: 0x225544, roughness: 0.5 });
     const bldgAccentMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
+    bldgWhiteMatRef.current = bldgWhiteMat;
+    bldgGreenMatRef.current = bldgGreenMat;
+    bldgAccentMatRef.current = bldgAccentMat;
+    groundMeshRef.current = new THREE.Mesh(); // placeholder ref
     const windowMat = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
       roughness: 0.15,
@@ -709,13 +807,51 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     const pergola = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.1, 2.4), trunkMat);
     pergola.position.set(0, 4.4, 0);
     loungeGroup.add(pergola);
-    [-1.6, 1.6].forEach((px) => {
-      [-1.0, 1.0].forEach((pz) => {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2), trunkMat);
-        post.position.set(px, 3.8, pz);
-        loungeGroup.add(post);
-      });
+    // Store roof meshes for cutaway roof control
+    roofMeshesRef.current = [bossPenthouse, hqTower, studioBody, opsBody, boardroom, loungeBase];
+
+    // Build & mount rich 3D interiors for all 7 buildings/rooms
+    const campusInteriors = buildCampusInteriors();
+    islandGroup.add(campusInteriors.group);
+
+    // Rain Particle System for weather effect
+    const rainCount = 1200;
+    const rainGeo = new THREE.BufferGeometry();
+    const rainPositions = new Float32Array(rainCount * 3);
+    for (let i = 0; i < rainCount; i++) {
+      rainPositions[i * 3] = (Math.random() - 0.5) * 60;
+      rainPositions[i * 3 + 1] = Math.random() * 25;
+      rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+    }
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    const rainMat = new THREE.PointsMaterial({
+      color: 0x93c5fd,
+      size: 0.12,
+      transparent: true,
+      opacity: 0.65,
     });
+    const rainParticles = new THREE.Points(rainGeo, rainMat);
+    rainParticles.visible = campusConfig.weather === 'rain';
+    scene.add(rainParticles);
+    rainParticlesRef.current = rainParticles;
+
+    // Boss Crown / Halo ring mesh to highlight boss
+    const haloGeo = new THREE.RingGeometry(0.22, 0.28, 16);
+    const haloMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide });
+    const bossHalo = new THREE.Mesh(haloGeo, haloMat);
+    bossHalo.rotation.x = -Math.PI / 2;
+    bossHalo.position.y = 1.15;
+    bossHaloRef.current = bossHalo;
+
+    // Boss Click-to-Move destination waypoint ring
+    const waypointGeo = new THREE.RingGeometry(0.35, 0.45, 24);
+    const waypointMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+    const waypointMesh = new THREE.Mesh(waypointGeo, waypointMat);
+    waypointMesh.rotation.x = -Math.PI / 2;
+    waypointMesh.position.y = 0.32;
+    waypointMesh.visible = false;
+    scene.add(waypointMesh);
+    waypointMeshRef.current = waypointMesh;
 
     // 6. PARK, TREES & FOUNTAIN (Lush nature around campus)
 
@@ -1234,6 +1370,11 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
         rightArmData.elbowGroup.add(mug);
       }
 
+      // If Boss, add golden halo above head
+      if (profile.id === 'boss_executive' && bossHaloRef.current) {
+        charGroup.add(bossHaloRef.current);
+      }
+
       peopleGroup.add(charGroup);
 
       return {
@@ -1344,11 +1485,16 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     scene.add(createSailboat(18, -14, -1.2));
     scene.add(createSailboat(-22, -10, 2.1));
 
-    // Mouse Controls (Rotate / Pan)
+    // Click detection & Boss Click-to-Move Raycaster
+    let mouseDownStart = { x: 0, y: 0, time: 0 };
+    const raycaster = new THREE.Raycaster();
+    const mouseNDC = new THREE.Vector2();
+
     const handleMouseDown = (e: MouseEvent) => {
       isDragging.current = true;
       dragButton.current = e.button;
       previousMousePosition.current = { x: e.clientX, y: e.clientY };
+      mouseDownStart = { x: e.clientX, y: e.clientY, time: Date.now() };
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -1380,9 +1526,50 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       }
     };
 
-    const handleMouseUp = () => {
-      isDragging.current = false;
+    const handleClickOrTap = (clientX: number, clientY: number) => {
+      if (!cameraRef.current || !container) return;
+      const rect = container.getBoundingClientRect();
+      mouseNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      mouseNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouseNDC, cameraRef.current);
+      // Raycast against islandGroup children (ground, roads, buildings)
+      const hits = raycaster.intersectObjects(islandGroup.children, true);
+      if (hits.length > 0) {
+        const point = hits[0].point;
+        // Move boss to clicked point!
+        bossTargetPos.current = new THREE.Vector3(point.x, point.y + 0.05, point.z);
+        if (waypointMeshRef.current) {
+          waypointMeshRef.current.position.set(point.x, point.y + 0.02, point.z);
+          waypointMeshRef.current.visible = true;
+        }
+        soundManager.playClick();
+      }
     };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      isDragging.current = false;
+      const distMoved = Math.hypot(e.clientX - mouseDownStart.x, e.clientY - mouseDownStart.y);
+      const timeDiff = Date.now() - mouseDownStart.time;
+      // If it was a quick click without large mouse movement, trigger boss destination!
+      if (distMoved < 6 && timeDiff < 300 && e.button === 0) {
+        handleClickOrTap(e.clientX, e.clientY);
+      }
+    };
+
+    // Keyboard controls for Boss (WASD / Arrows)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      keysPressedRef.current[key] = true;
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      keysPressedRef.current[key] = false;
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -1620,8 +1807,88 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
             char.leftElbow.rotation.x = 0.6;
             char.rightElbow.rotation.x = 0.6;
           }
+        } else if (char.profile.id === 'boss_executive') {
+          // 4. BOSS EXECUTIVE: Real-time Player Controller (WASD, D-pad, Click-to-Move waypoint)
+          const bossSpeed = (campusConfig.bossSpeed || 0.12);
+          let moveDir = new THREE.Vector3(0, 0, 0);
+
+          // Keyboard input
+          const keys = keysPressedRef.current;
+          if (keys['w'] || keys['arrowup']) moveDir.z -= 1;
+          if (keys['s'] || keys['arrowdown']) moveDir.z += 1;
+          if (keys['a'] || keys['arrowleft']) moveDir.x -= 1;
+          if (keys['d'] || keys['arrowright']) moveDir.x += 1;
+
+          // Manual UI D-pad input
+          if (manualBossMove && manualBossMove.tick) {
+            moveDir.x += manualBossMove.dx;
+            moveDir.z += manualBossMove.dz;
+          }
+
+          // Click-to-move destination waypoint
+          if (bossTargetPos.current) {
+            const toTarget = bossTargetPos.current.clone().sub(char.currentPos);
+            toTarget.y = 0;
+            const dist = toTarget.length();
+            if (dist < 0.2) {
+              bossTargetPos.current = null;
+              if (waypointMeshRef.current) waypointMeshRef.current.visible = false;
+            } else {
+              toTarget.normalize();
+              moveDir.add(toTarget);
+            }
+          }
+
+          const isMoving = moveDir.lengthSq() > 0.001;
+          if (isMoving) {
+            moveDir.normalize();
+            char.currentPos.addScaledVector(moveDir, bossSpeed);
+            char.group.position.copy(char.currentPos);
+            char.group.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+
+            // Natural walk cycle animation
+            char.walkPhase += 0.14;
+            const legPitch = Math.sin(char.walkPhase) * 0.55;
+            char.leftLegHip.rotation.x = legPitch;
+            char.rightLegHip.rotation.x = -legPitch;
+            char.leftKnee.rotation.x = Math.max(0.08, -legPitch * 0.85);
+            char.rightKnee.rotation.x = Math.max(0.08, legPitch * 0.85);
+            char.leftArmShoulder.rotation.x = -legPitch * 0.45;
+            char.rightArmShoulder.rotation.x = legPitch * 0.45;
+            char.leftElbow.rotation.x = 0.25;
+            char.rightElbow.rotation.x = 0.25;
+            char.spine.rotation.z = Math.sin(char.walkPhase) * 0.03;
+
+            // Notify parent of new Boss position
+            if (onUpdateBossPos) {
+              onUpdateBossPos([char.currentPos.x, char.currentPos.y, char.currentPos.z]);
+            }
+          } else {
+            // Idle stance
+            char.leftLegHip.rotation.x = 0;
+            char.rightLegHip.rotation.x = 0;
+            char.leftKnee.rotation.x = 0;
+            char.rightKnee.rotation.x = 0;
+            char.leftArmShoulder.rotation.x = 0.05;
+            char.rightArmShoulder.rotation.x = -0.05;
+            char.leftElbow.rotation.x = 0.2;
+            char.rightElbow.rotation.x = 0.2;
+            char.spine.position.y = 0.44 + Math.sin(elapsed * 2) * 0.005;
+          }
+
+          // Halo spin
+          if (bossHaloRef.current) {
+            bossHaloRef.current.rotation.z += 0.03;
+          }
+
+          // Follow Camera Mode for Boss
+          if (campusConfig.cameraMode === 'follow_boss') {
+            const camOffset = new THREE.Vector3(6, 6, 6);
+            targetLookAt.current.lerp(char.currentPos, 0.1);
+            targetCamPos.current.lerp(char.currentPos.clone().add(camOffset), 0.1);
+          }
         } else {
-          // 4. Standing office workers: gentle breathing & natural head look
+          // 5. Standing office workers: gentle breathing & natural head look
           char.spine.position.y = 0.44 + Math.sin(elapsed * 1.5) * 0.004;
           char.head.rotation.y = Math.sin(elapsed * 0.6) * 0.22;
           char.leftArmShoulder.rotation.x = Math.sin(elapsed * 0.5) * 0.05;
@@ -1731,6 +1998,8 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       dom.removeEventListener('touchstart', handleTouchStart);
       dom.removeEventListener('touchmove', handleTouchMove);
       dom.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       if (container && renderer.domElement) {
         container.removeChild(renderer.domElement);
       }

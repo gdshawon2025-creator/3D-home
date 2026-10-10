@@ -1,4 +1,42 @@
-import { RoomInfo, ViewMode } from '../types/office';
+import { RoomInfo, ViewMode, BuildingTheme } from '../types/office';
+
+export const THEME_COLORS: Record<BuildingTheme, { main: number; secondary: number; accent: number; nameEn: string; nameBn: string }> = {
+  emerald: {
+    main: 0xf8fafc,
+    secondary: 0x225544,
+    accent: 0x334155,
+    nameEn: 'Emerald Modern',
+    nameBn: 'মরোদি আধুনিক',
+  },
+  midnight: {
+    main: 0x1e293b,
+    secondary: 0x0f172a,
+    accent: 0x38bdf8,
+    nameEn: 'Midnight Slate',
+    nameBn: 'মিডনাইট স্লেট',
+  },
+  minimal: {
+    main: 0xffffff,
+    secondary: 0xe2e8f0,
+    accent: 0x64748b,
+    nameEn: 'Pure Minimalist',
+    nameBn: 'সাদা মিনিমালিস্ট',
+  },
+  cyberpunk: {
+    main: 0x18181b,
+    secondary: 0x4f46e5,
+    accent: 0xec4899,
+    nameEn: 'Cyberpunk Neon',
+    nameBn: 'সাইবার নিয়ন',
+  },
+  terracotta: {
+    main: 0xffedd5,
+    secondary: 0x9a3412,
+    accent: 0x78350f,
+    nameEn: 'Warm Terracotta',
+    nameBn: 'টেরাকোটা ক্লাসিক',
+  },
+};
 
 export const ROOMS: RoomInfo[] = [
   {
@@ -20,14 +58,17 @@ export const ROOMS: RoomInfo[] = [
     cameraPosition: [-4, 6, 8],
     cameraTarget: [-4, 1.5, 0],
     pinPosition: [-4, 3.2, 0],
+    interiorPosition: [-4, 0.35, -1.8],
+    interiorCameraPos: [-4, 2.2, 1.8],
+    interiorCameraTarget: [-4, 1.1, -1.8],
   },
   {
     id: 'studio',
     code: '02',
     nameEn: 'Work Studio',
     nameBn: 'ওয়ার্ক স্টুডিও (Work Studio)',
-    floorEn: 'Level 2 · Engineering Wing',
-    floorBn: '২য় তলা · ইঞ্জিনিয়ারিং উইং',
+    floorEn: 'Level 1 · Engineering Wing',
+    floorBn: '১ম তলা · ইঞ্জিনিয়ারিং উইং',
     descriptionEn: 'High-energy open-concept development studio with dual-monitor standing desks, quiet focus pods, and collaborative pods.',
     descriptionBn: 'উচ্চ ক্ষমতাসম্পন্ন আধুনিক ওপেন ওয়ার্কস্পেস, ডুয়াল মনিটর স্ট্যান্ডিং ডেস্ক এবং ফোকাস পড।',
     capacity: 45,
@@ -40,6 +81,9 @@ export const ROOMS: RoomInfo[] = [
     cameraPosition: [7, 7, 6],
     cameraTarget: [7, 2.5, -2],
     pinPosition: [7, 4.2, -2],
+    interiorPosition: [7, 0.35, -3.2],
+    interiorCameraPos: [7, 2.6, 0.6],
+    interiorCameraTarget: [7, 1.3, -3.2],
   },
   {
     id: 'design',
@@ -60,6 +104,9 @@ export const ROOMS: RoomInfo[] = [
     cameraPosition: [7, 8, -6],
     cameraTarget: [7, 3, -8],
     pinPosition: [7, 5.2, -8],
+    interiorPosition: [7, 2.6, -6.8],
+    interiorCameraPos: [7, 4.4, -3.4],
+    interiorCameraTarget: [7, 2.8, -6.8],
   },
   {
     id: 'meeting',
@@ -80,6 +127,9 @@ export const ROOMS: RoomInfo[] = [
     cameraPosition: [-7, 9, -5],
     cameraTarget: [-7, 3.5, -7],
     pinPosition: [-7, 5.5, -7],
+    interiorPosition: [-7, 2.6, -7.0],
+    interiorCameraPos: [-7, 4.2, -4.2],
+    interiorCameraTarget: [-7, 3.2, -7.0],
   },
   {
     id: 'operations',
@@ -100,6 +150,9 @@ export const ROOMS: RoomInfo[] = [
     cameraPosition: [-8, 7, 4],
     cameraTarget: [-8, 2, 2],
     pinPosition: [-8, 4.0, 2],
+    interiorPosition: [-8, 0.35, 2.0],
+    interiorCameraPos: [-8, 2.4, 4.8],
+    interiorCameraTarget: [-8, 1.4, 2.0],
   },
   {
     id: 'lounge',
@@ -120,6 +173,9 @@ export const ROOMS: RoomInfo[] = [
     cameraPosition: [0, 9, -10],
     cameraTarget: [0, 3.5, -8],
     pinPosition: [0, 5.8, -8],
+    interiorPosition: [0, 3.5, -8.0],
+    interiorCameraPos: [0, 5.0, -5.2],
+    interiorCameraTarget: [0, 3.8, -8.0],
   },
   {
     id: 'cabin',
@@ -140,6 +196,9 @@ export const ROOMS: RoomInfo[] = [
     cameraPosition: [-4, 11, -2],
     cameraTarget: [-4, 4.5, -3],
     pinPosition: [-4, 6.8, -3],
+    interiorPosition: [-4, 6.2, -3.0],
+    interiorCameraPos: [-4, 7.6, -0.6],
+    interiorCameraTarget: [-4, 6.5, -3.0],
   },
 ];
 

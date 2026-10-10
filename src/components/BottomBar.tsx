@@ -96,6 +96,19 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           {language === 'bn' ? 'উপকূল ও বাতিঘর' : 'Neighbourhood'}
         </button>
 
+        {/* Boss Cabin Shortcut */}
+        <button
+          onClick={() => handleView('cabin')}
+          className={`px-3 py-1.5 rounded-full font-semibold transition-all whitespace-nowrap flex items-center gap-1 active:scale-95 ${
+            currentView === 'cabin'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
+          }`}
+        >
+          <span>👑</span>
+          <span>{language === 'bn' ? 'বস কেবিন (ইনসাইড)' : 'Boss Cabin'}</span>
+        </button>
+
         {/* Take a Tour action button */}
         <button
           onClick={() => {
